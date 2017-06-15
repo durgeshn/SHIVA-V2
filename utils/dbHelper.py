@@ -16,6 +16,7 @@ class ConnectDB(object):
         return self.conn.cursor()
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.conn.commit()
         self.conn.close()
 
 
