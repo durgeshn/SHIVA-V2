@@ -5,6 +5,7 @@ from PySide import QtGui
 from ui import production
 from utils.dbHelper import ConnectDB
 import commentMain
+
 reload(commentMain)
 
 
@@ -21,6 +22,7 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         completer.setModel(model)
         self.getArtistList(model)
         self.comment = None
+        self.tableWidget.setSelectionBehavior(QtGui.QAbstractItemView.SelectRows)
 
         self.makeConnections()
 
@@ -30,6 +32,23 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         self.dept_cb.currentIndexChanged.connect(self.updateTable)
         self.assign_pb.clicked.connect(self.assignShots)
         self.reassign_pb.clicked.connect(self.reassignShots)
+        self.approve_pb.clicked.connect(self.approoveShot)
+
+    def refreshTable(self):
+        self.updateTable()
+
+    def approoveShot(self):
+        project = self.project_cb.currentText()
+        episode = self.episode_cb.currentText()
+        dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
+
+        errorMessage = dict()
+        colCount = self.tableWidget.columnCount()
+        for i, e in enumerate(self.tableWidget.selectedItems()):
+            if (i % colCount) != 0:
+                continue
+            shotName = e.text()
+            print [shotName], '<----------------------'
 
     def assignShots(self):
         project = self.project_cb.currentText()
@@ -42,7 +61,10 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             return False
 
         errorMessage = dict()
-        for e in self.tableWidget.selectedItems():
+        colCount = self.tableWidget.columnCount()
+        for i, e in enumerate(self.tableWidget.selectedItems()):
+            if (i % colCount) != 0:
+                continue
             shotName = e.text()
             # check in the fetched cached database for the shot entries for status, if it's not yet assigned then only
             # assign them else put them in the errorMessage.
@@ -56,6 +78,8 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
                     msg = 'UPDATE `{0}` SET `{1}_artist_name`="{2}",`{3}_status`="NYS" WHERE `shots` = "{4}"'.format(
                         episode, dept, artistName, dept, shotName)
                     newdBcONN.execute(msg)
+
+        self.refreshTable()
         #
         if errorMessage:
             msgBody = 'One or more shot(s) are been assigned to other artist(s)'
@@ -76,7 +100,10 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             return False
 
         errorMessage = dict()
-        for e in self.tableWidget.selectedItems():
+        colCount = self.tableWidget.columnCount()
+        for i, e in enumerate(self.tableWidget.selectedItems()):
+            if (i % colCount) != 0:
+                continue
             self.comment = None
             shotName = e.text()
             # check in the fetched cached database for the shot entries for status, if it's not yet assigned then only
@@ -90,8 +117,6 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             else:
                 commentBox = commentMain.CommentMain(commentFor=shotName, prnt=self)
                 commentBox.exec_()
-                print commentBox, "---------------------------------------------------------------------------"
-                print self.comment, '<-----------------------------'
                 now = datetime.datetime.now()
                 finalComment = '{0}:{1}~'.format(now.strftime('%m-%d-%Y %H:%M'), self.comment)
                 with ConnectDB(project) as newdBcONN:
@@ -99,6 +124,8 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
                           ',"{5}") WHERE `shots` = "{6}"'.format(episode, dept, artistName, dept,
                                                                  dept, finalComment, shotName)
                     newdBcONN.execute(msg)
+
+        self.refreshTable()
 
         if errorMessage:
             msgBody = 'One or more shot(s) can\'t be reassigned, please check details for addition info.'
