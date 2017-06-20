@@ -21,6 +21,8 @@ class CommentMain(QtGui.QDialog, commentUI.Ui_Dialog):
         self.ok_pb.clicked.connect(self.commentIt)
 
     def commentIt(self):
+        if self.comment_te.toPlainText() == '':
+            return False
         self.close()
         self.prnt.comment = self.comment_te.toPlainText()
         return self.comment_te.toPlainText()
@@ -29,14 +31,15 @@ class CommentMain(QtGui.QDialog, commentUI.Ui_Dialog):
         return self.prnt.comment
 
     def __repr__(self):
-        return self.commentIt()
+        # return self.commentIt()
+        return self.comment_te.toPlainText()
 
 
 def main(commentFor, prnt=None):
-    # qApp = QtGui.QApplication(sys.argv)
+    qApp = QtGui.QApplication(sys.argv)
     commentWin = CommentMain(commentFor=commentFor, prnt=prnt)
     commentWin.exec_()
-    # qApp.exec_()
+    qApp.exec_()
 
 if __name__ == '__main__':
     main('sh001')

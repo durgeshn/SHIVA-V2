@@ -1,6 +1,6 @@
 import sys
 import datetime
-from PySide import QtGui
+from PySide import QtGui, QtCore
 
 from ui import production
 from utils.dbHelper import ConnectDB
@@ -33,22 +33,89 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         self.assign_pb.clicked.connect(self.assignShots)
         self.reassign_pb.clicked.connect(self.reassignShots)
         self.approve_pb.clicked.connect(self.approoveShot)
+        # self.retake_pb.clicked.connect(self.makeShotsNew)
+        self.retake_pb.clicked.connect(self.SFAShot)
 
     def refreshTable(self):
         self.updateTable()
+
+    def getSelectedRows(self):
+        rows = list()
+        for each in self.tableWidget.selectedIndexes():
+            if each.row() not in rows:
+                rows.append(each.row())
+        return rows
+
+    def makeShotsNew(self):
+        project = self.project_cb.currentText()
+        episode = self.episode_cb.currentText()
+        dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
+
+        for eachRow in self.getSelectedRows():
+            shotName = self.tableWidget.item(eachRow, 0).text()
+            print 'Wiping the database for {}'.format(shotName)
+            with ConnectDB(project) as newDBConn:
+                msg = 'UPDATE `{0}` SET `{1}_status`=NULL, `{2}_artist_name`=NULL, `{3}_comments`=NULL WHERE `shots` = "{4}"'.format(
+                    episode, dept, dept, dept, shotName)
+                # print msg
+                newDBConn.execute(msg)
+        self.refreshTable()
+
+    def SFAShot(self):
+        project = self.project_cb.currentText()
+        episode = self.episode_cb.currentText()
+        dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
+        errorMessage = dict()
+        colCount = self.tableWidget.columnCount()
+
+        # get the selected rows.
+        rows = list()
+        for e in self.tableWidget.selectedIndexes():
+            if e.row() not in rows:
+                rows.append(e.row())
+
+        for eachRow in rows:
+            shotName = self.tableWidget.item(eachRow, 0).text()
+            # print shotName, '<----------------------------'
+            with ConnectDB(project) as newDBConn:
+                msg = 'UPDATE `{0}` SET `{1}_status`="SFA" WHERE `shots` = "{2}"'.format(episode, dept, shotName)
+                newDBConn.execute(msg)
+        self.refreshTable()
 
     def approoveShot(self):
         project = self.project_cb.currentText()
         episode = self.episode_cb.currentText()
         dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
 
-        errorMessage = dict()
-        colCount = self.tableWidget.columnCount()
-        for i, e in enumerate(self.tableWidget.selectedItems()):
-            if (i % colCount) != 0:
-                continue
-            shotName = e.text()
+        errorMessage = list()
+
+        for eachRow in self.getSelectedRows():
+            shotName = self.tableWidget.item(eachRow, 0).text()
             print [shotName], '<----------------------'
+            for eachLine in self.dbData:
+                if shotName not in eachLine:
+                    continue
+                if eachLine[4] != 'SFA':
+                    errorMessage.append(shotName)
+                    break
+            else:
+                with ConnectDB(project) as newdBcONN:
+                    msg = 'UPDATE `{0}` SET `{1}_status`="APP" WHERE `shots` = "{2}"'.format(episode, dept, shotName)
+                    newdBcONN.execute(msg)
+
+            self.refreshTable()
+
+            if errorMessage:
+                msgBody = 'There is a problem while approoving the shot(s)'
+                detail = ''
+                for e in errorMessage:
+                    detail += 'Shot {0} is not in SFA stage..\n'.format(e)
+
+                detail += 'Can\'t approove a shot which is not in SFA stage'
+                self.showMessageBox(msgBody=msgBody, msgDetail=detail, header='Error', msgType='error')
+
+
+
 
     def assignShots(self):
         project = self.project_cb.currentText()
@@ -61,11 +128,9 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             return False
 
         errorMessage = dict()
-        colCount = self.tableWidget.columnCount()
-        for i, e in enumerate(self.tableWidget.selectedItems()):
-            if (i % colCount) != 0:
-                continue
-            shotName = e.text()
+        rows = self.getSelectedRows()
+        for e in rows:
+            shotName = self.tableWidget.item(e, 0).text()
             # check in the fetched cached database for the shot entries for status, if it's not yet assigned then only
             # assign them else put them in the errorMessage.
             for eachLine in self.dbData:
@@ -100,41 +165,53 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             return False
 
         errorMessage = dict()
-        colCount = self.tableWidget.columnCount()
-        for i, e in enumerate(self.tableWidget.selectedItems()):
-            if (i % colCount) != 0:
-                continue
-            self.comment = None
-            shotName = e.text()
+        commentError = list()
+        artistError = list()
+        rows = self.getSelectedRows()
+        for e in rows:
+            shotName = self.tableWidget.item(e, 0).text()
             # check in the fetched cached database for the shot entries for status, if it's not yet assigned then only
             # assign them else put them in the errorMessage.
             for eachLine in self.dbData:
                 if shotName in eachLine:
-                    if eachLine[4] == '':
+                    print eachLine[4], '<------------------------------'
+                    if eachLine[4] == '' or eachLine[4] == None:
                         # dict with shot name as key and dept.status and session.status as values list.
                         errorMessage[shotName] = eachLine[3], eachLine[4]
+                        break
+                    if eachLine[3] == artistName:
+                        artistError.append(shotName)
                         break
             else:
                 commentBox = commentMain.CommentMain(commentFor=shotName, prnt=self)
                 commentBox.exec_()
+                if self.comment == None or self.comment == '':
+                    commentError.append(shotName)
+                    continue
                 now = datetime.datetime.now()
                 finalComment = '{0}:{1}~'.format(now.strftime('%m-%d-%Y %H:%M'), self.comment)
                 with ConnectDB(project) as newdBcONN:
-                    msg = 'UPDATE `{0}` SET `{1}_artist_name`="{2}", `{3}_comments`=CONCAT(COALESCE({4}_comments, "")' \
-                          ',"{5}") WHERE `shots` = "{6}"'.format(episode, dept, artistName, dept,
-                                                                 dept, finalComment, shotName)
+                    msg = 'UPDATE `{0}` SET `{1}_artist_name`="{2}", `{3}_comments`=CONCAT(COALESCE({4}_comments, ""), "{5}"), `{7}_status`="TWIP" WHERE `shots` = "{6}"'.format(episode, dept, artistName, dept, dept, finalComment, shotName, dept)
                     newdBcONN.execute(msg)
 
         self.refreshTable()
 
-        if errorMessage:
+        if errorMessage or commentError or artistError:
             msgBody = 'One or more shot(s) can\'t be reassigned, please check details for addition info.'
             detail = ''
             for e in errorMessage.keys():
                 detail += 'Shot {0} departmen status is {1} and the session status is {2}.\n'.format(e,
                                                                                                      errorMessage[e][0],
                                                                                                      errorMessage[e][1])
-            detail += 'Session needs to be CLOSED for the shot to be reassigned.\n'
+            for each in commentError:
+                detail += 'No comment received for shot {}.\n'.format(each)
+
+            detail += '\n--------------------------------\n'
+
+            for each in artistError:
+                detail += '{} already assigned to same artist\n'.format(each)
+
+            detail += '\n\nSession needs to be CLOSED for the shot to be reassigned.\n'
             detail += 'If the Shot is not yet assigned then use assign instead of reassign.\n'
             self.showMessageBox(msgBody=msgBody, msgDetail=detail, header='Error', msgType='error')
 
@@ -162,7 +239,7 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         self.dept_cb.setCurrentIndex(0)
 
     def updateTable(self):
-        print self.project_cb.currentText()
+        # print self.project_cb.currentText()
         self.populateArtists()
         dept = self.dept_cb.currentText()
         episode = self.episode_cb.currentText()
@@ -170,16 +247,17 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             return False
         dept = 'anim' if dept == 'Animation' else 'lay'
         dbQuerry = 'SELECT `shots`, `Start_Frame`, `End_Frame`, `%s_artist_name`, `%s_status`,  `Session_Status`, ' \
-                   '`%s_startdate`, `%s_enddate`, `%s_publishdate` FROM `%s` ORDER BY `%s`.`shots` ASC' \
-                   % (dept, dept, dept, dept, dept, episode, episode)
+                   '`%s_startdate`, `%s_enddate`, `%s_publishdate`, `%s_comments` FROM `%s` ORDER BY `%s`.`shots` ASC' \
+                   % (dept, dept, dept, dept, dept, dept, episode, episode)
         # dbData = None
         with ConnectDB(self.project_cb.currentText()) as dbCur:
             dbCur.execute(dbQuerry)
 
             self.dbData = dbCur.fetchall()
 
-        headers = ['shots', 'Start_Frame', 'End_Frame', '%s_artist_name' % dept, '%s_status' % dept,
-                   'Session_Status', '%s_startdate' % dept, '%s_enddate' % dept, '%s_publishdate' % dept]
+            headers = ['shots', 'Start_Frame', 'End_Frame', '%s_artist_name' % dept, '%s_status' % dept,
+                       'Session_Status', '%s_startdate' % dept, '%s_enddate' % dept, '%s_publishdate' % dept,
+                       '%s_comments' % dept]
 
         self.tableWidget.setRowCount(len(self.dbData))
         self.tableWidget.setColumnCount(len(self.dbData[0]))
@@ -189,7 +267,7 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
 
         for row, eachRow in enumerate(self.dbData):
             for col, eachCol in enumerate(eachRow):
-                print eachCol, row, col
+                # print eachCol, row, col
                 itm = QtGui.QTableWidgetItem(eachCol)
                 self.tableWidget.setItem(row, col, itm)
 
