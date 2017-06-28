@@ -1,15 +1,19 @@
 import sys
 import datetime
-from PySide import QtGui, QtCore
+import commentMain
+
+from PySide import QtGui
 
 from ui import production
 from utils.dbHelper import ConnectDB
-import commentMain
+from utils import mailing
+from utils.switch import Switch, case
+reload(production)
 
 reload(commentMain)
 
 
-class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
+class ProductionWin(QtGui.QMainWindow, production.Ui_MainWindow):
     def __init__(self):
         super(ProductionWin, self).__init__()
         self.setupUi(self)
@@ -23,6 +27,15 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         self.getArtistList(model)
         self.comment = None
         self.tableWidget.setSelectionBehavior(QtGui.QAbstractItemView.SelectRows)
+        self.tableWidget.setSortingEnabled(True)
+
+        # variable for the adding artists.
+        self.allArtists = list()
+
+        # variables for the mailing system.
+        self.comment_dict = dict()
+        self.sender = ''
+        self.receivers = list()
 
         self.makeConnections()
 
@@ -34,7 +47,8 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         self.reassign_pb.clicked.connect(self.reassignShots)
         self.approve_pb.clicked.connect(self.approoveShot)
         # self.retake_pb.clicked.connect(self.makeShotsNew)
-        self.retake_pb.clicked.connect(self.SFAShot)
+        # self.retake_pb.clicked.connect(self.SFAShot)
+        self.retake_pb.clicked.connect(self.retakeShots)
 
     def refreshTable(self):
         self.updateTable()
@@ -46,6 +60,47 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
                 rows.append(each.row())
         return rows
 
+    def retakeShots(self):
+        self.comment_dict = dict()
+        project = self.project_cb.currentText()
+        episode = self.episode_cb.currentText()
+        dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
+
+        errorMessage = list()
+        commentError = list()
+        for eachRow in self.getSelectedRows():
+            shotName = self.tableWidget.item(eachRow, 0).text()
+            for eachLine in self.dbData:
+                if shotName not in eachLine:
+                    continue
+                if eachLine[4] != 'SFA':
+                    errorMessage.append(shotName)
+                    break
+            else:
+                commentBox = commentMain.CommentMain(commentFor=shotName, prnt=self)
+                commentBox.exec_()
+                if self.comment is None or self.comment == '':
+                    commentError.append(shotName)
+                    continue
+                now = datetime.datetime.now()
+                finalComment = '{0}:{1}~'.format(now.strftime('%m-%d-%Y %H:%M'), self.comment)
+                self.comment_dict[shotName] = self.comment
+                with ConnectDB(project) as newdBcONN:
+                    msg = 'UPDATE `{0}` SET `{1}_status`="TWIP", `{2}_comments`="{3}" WHERE `shots` = "{4}"'.format(
+                        episode, dept, dept, finalComment, shotName)
+                    newdBcONN.execute(msg)
+
+        self.refreshTable()
+
+        if errorMessage:
+            msgBody = 'There is a problem while approoving the shot(s)'
+            detail = ''
+            for e in errorMessage:
+                detail += 'Shot {0} is not in SFA stage..\n'.format(e)
+
+            detail += 'Can\'t add retake to a shot which is not in SFA stage'
+            self.showMessageBox(msgBody=msgBody, msgDetail=detail, header='Error', msgType='error')
+
     def makeShotsNew(self):
         project = self.project_cb.currentText()
         episode = self.episode_cb.currentText()
@@ -55,8 +110,8 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             shotName = self.tableWidget.item(eachRow, 0).text()
             print 'Wiping the database for {}'.format(shotName)
             with ConnectDB(project) as newDBConn:
-                msg = 'UPDATE `{0}` SET `{1}_status`=NULL, `{2}_artist_name`=NULL, `{3}_comments`=NULL WHERE `shots` = "{4}"'.format(
-                    episode, dept, dept, dept, shotName)
+                msg = 'UPDATE `{0}` SET `{1}_status`=NULL, `{2}_artist_name`=NULL, `{3}_comments`=NULL WHERE `shots`' \
+                      ' = "{4}"'.format(episode, dept, dept, dept, shotName)
                 # print msg
                 newDBConn.execute(msg)
         self.refreshTable()
@@ -65,8 +120,8 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         project = self.project_cb.currentText()
         episode = self.episode_cb.currentText()
         dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
-        errorMessage = dict()
-        colCount = self.tableWidget.columnCount()
+        # errorMessage = dict()
+        # colCount = self.tableWidget.columnCount()
 
         # get the selected rows.
         rows = list()
@@ -114,9 +169,6 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
                 detail += 'Can\'t approove a shot which is not in SFA stage'
                 self.showMessageBox(msgBody=msgBody, msgDetail=detail, header='Error', msgType='error')
 
-
-
-
     def assignShots(self):
         project = self.project_cb.currentText()
         episode = self.episode_cb.currentText()
@@ -155,6 +207,7 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             self.showMessageBox(msgBody=msgBody, msgDetail=detail, header='Error', msgType='error')
 
     def reassignShots(self):
+        self.comment_dict = dict()
         project = self.project_cb.currentText()
         episode = self.episode_cb.currentText()
         dept = 'anim' if self.dept_cb.currentText() == 'Animation' else 'lay'
@@ -175,7 +228,7 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             for eachLine in self.dbData:
                 if shotName in eachLine:
                     print eachLine[4], '<------------------------------'
-                    if eachLine[4] == '' or eachLine[4] == None:
+                    if eachLine[4] == '' or eachLine[4] is None:
                         # dict with shot name as key and dept.status and session.status as values list.
                         errorMessage[shotName] = eachLine[3], eachLine[4]
                         break
@@ -185,13 +238,17 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
             else:
                 commentBox = commentMain.CommentMain(commentFor=shotName, prnt=self)
                 commentBox.exec_()
-                if self.comment == None or self.comment == '':
+                if self.comment is None or self.comment == '':
                     commentError.append(shotName)
                     continue
                 now = datetime.datetime.now()
                 finalComment = '{0}:{1}~'.format(now.strftime('%m-%d-%Y %H:%M'), self.comment)
+                self.comment_dict[shotName] = self.comment
                 with ConnectDB(project) as newdBcONN:
-                    msg = 'UPDATE `{0}` SET `{1}_artist_name`="{2}", `{3}_comments`=CONCAT(COALESCE({4}_comments, ""), "{5}"), `{7}_status`="TWIP" WHERE `shots` = "{6}"'.format(episode, dept, artistName, dept, dept, finalComment, shotName, dept)
+                    msg = 'UPDATE `{0}` SET `{1}_artist_name`="{2}", `{3}_comments`=CONCAT(COALESCE({4}_comments,' \
+                          ' ""), "{5}"), `{7}_status`="TWIP" WHERE `shots` = "{6}"'.format(episode, dept, artistName,
+                                                                                           dept, dept, finalComment,
+                                                                                           shotName, dept)
                     newdBcONN.execute(msg)
 
         self.refreshTable()
@@ -228,11 +285,13 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
 
     def getArtistList(self, model):
         artistList = list()
+        self.allArtists = list()
         dept = 'ani' if self.dept_cb.currentText() == 'Animation' else 'lay'
         with ConnectDB('users') as dbConn:
             dbConn.execute('SELECT empname FROM `emp` WHERE `empdepts` LIKE "%{0}%" ORDER BY `empid` ASC'.format(dept))
             for eachArtist in dbConn.fetchall():
                 artistList.append(eachArtist[0])
+        self.allArtists = artistList
         model.setStringList(artistList)
 
     def updateDept(self):
@@ -296,6 +355,30 @@ class ProductionWin(QtGui.QMainWindow, production.Ui_Form):
         if msgDetail:
             msgBox.setDetailedText(msgDetail)
         msgBox.exec_()
+
+    def mail_all_scenarios(self, scenario):
+        mailSubject = ''
+        messageToSend = ''
+        while Switch(scenario):
+            if case('Reassign'):
+                print 'Reassigning shot(s)'
+                mailSubject = ''
+                messageToSend = ''
+                break
+            if case('Retake'):
+                print 'Retake for shot(s)'
+                mailSubject = ''
+                messageToSend = ''
+                break
+            if case('Assign'):
+                print 'Assigning shot(s)'
+                mailSubject = ''
+                messageToSend = ''
+                break
+            break
+
+        # send_mail(mail_sub='', mail_body='', sender='', receivers=list()):
+        mailing.send_mail(mail_sub=mailSubject, mail_body=messageToSend, sender=self.sender, receivers=self.receivers)
 
 
 if __name__ == '__main__':
