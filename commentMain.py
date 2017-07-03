@@ -24,15 +24,17 @@ class CommentMain(QtGui.QDialog, commentUI.Ui_Dialog):
         if self.comment_te.toPlainText() == '':
             return False
         self.close()
-        self.prnt.comment = self.comment_te.toPlainText()
-        return self.comment_te.toPlainText()
+        if self.prnt:
+            self.prnt.comment = self.comment_te.toPlainText().replace('\\', '/')
+        print self.comment_te.toPlainText().replace('\\', '/')
+        return self.comment_te.toPlainText().replace('\\', '/')
 
     def getvslue(self):
         return self.prnt.comment
 
     def __repr__(self):
         # return self.commentIt()
-        return self.comment_te.toPlainText()
+        return self.comment_te.toPlainText().replace('\\', '/')
 
 
 def main(commentFor, prnt=None):

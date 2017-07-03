@@ -1,16 +1,17 @@
 import os
 import smtplib
-
+from config import config
 # os.environ['DEBUG'] = '1'
 
 def send_mail(mail_sub='', mail_body='', sender='', receivers=list()):
 
-    print mail_sub
-    print mail_body
-    print sender
-    print receivers
+    # print mail_sub
+    # print mail_body
+    # print sender
+    # print receivers
 
     # we need the receivers.
+    print 222222222222222222222222222222222
     if not receivers:
         return 'No receivers found, aborting mailing process.'
     # if no senders specified then take the local user as the sender.
@@ -25,12 +26,15 @@ def send_mail(mail_sub='', mail_body='', sender='', receivers=list()):
 
     message = 'From: %s\nTo: %s\nSubject: %s\n%s.' % (sender, receivers[0], mail_sub, mail_body)
 
-    if debug:
-        print 'Mailing : \n {} \n\n From : {} \n To : {}'.format(message, sender, receivers)
-        return True
+    # if debug:
+    #     print 'Mailing : \n {} \n\n From : {} \n To : {}'.format(message, sender, receivers)
+    #     return True
 
     try:
-        smtp_obj = smtplib.SMTP('mail.pcgi.com')
+        print 'sender', sender
+        print 'receivers', receivers
+        print 'message', message
+        smtp_obj = smtplib.SMTP(config.mailHost)
         smtp_obj.sendmail(sender, receivers, message)
         smtp_obj.quit()
         print "Successfully sent email"
@@ -41,4 +45,5 @@ def send_mail(mail_sub='', mail_body='', sender='', receivers=list()):
 if __name__ == '__main__':
     # print os.environ['DEBUG']
     # pass
-    print send_mail(mail_sub='test', mail_body='Hi', receivers=['durgesh.n@mail.pcgi.com'])
+    # print send_mail(mail_sub='test', mail_body='Hi', receivers=['durgesh.n@mail.pcgi.com'], sender='durgesh.n@mail.pcgi.com')
+    print send_mail(mail_sub='test', mail_body='Hi', receivers=['durgesh.n@pcgi.com'], sender='')
